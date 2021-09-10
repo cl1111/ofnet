@@ -869,7 +869,6 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 			addActn = true
 
 			log.Debugf("flow install. Added setUDPDst Action: %+v", setUDPDstAction)
-
 		case "loadAction":
 			loadAct := flowAction.loadAction
 			ofsBits := loadAct.Range.ToOfsBits()
@@ -1004,8 +1003,10 @@ func (self *Flow) install() error {
 	case "empty":
 		instr := self.NextElem.GetFlowInstr()
 		if instr != nil {
-			self.installFlowActions(flowMod, instr)
-
+			err := self.installFlowActions(flowMod, instr)
+			if err != nil {
+				return err
+			}
 			if len(instr.(*openflow13.InstrActions).Actions) > 0 {
 				flowMod.AddInstruction(instr)
 			}
