@@ -16,8 +16,9 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/streamrail/concurrent-map v0.0.0-20160823150647-8bf1e9bacbf6
 	github.com/vishvananda/netlink v0.0.0-20170220200719-fe3b5664d23a
-	golang.org/x/net v0.0.0-20201110031124-69a78807bb2b
+	golang.org/x/net v0.0.0-20210520170846-37e1c6afe023
 	google.golang.org/grpc v1.35.0
+	k8s.io/apimachinery v0.22.1
 )
 
 replace (

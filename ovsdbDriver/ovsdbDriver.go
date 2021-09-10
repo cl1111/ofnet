@@ -194,6 +194,7 @@ func (self *OvsDriver) ovsdbTransact(ops []libovsdb.Operation) error {
 
 	// Perform OVSDB transaction
 	reply, _ := self.ovsClient.Transact("Open_vSwitch", ops...)
+	log.Infof("ovsdbTransact result: %v", reply)
 
 	if len(reply) < len(ops) {
 		log.Errorf("Unexpected number of replies. Expected: %d, Recvd: %d", len(ops), len(reply))
@@ -402,6 +403,241 @@ func (self *OvsDriver) UpdateInterface(ifaceName string, externalIDs map[string]
 	}
 
 	return self.ovsdbTransact([]libovsdb.Operation{portOperation})
+}
+
+type Iface struct {
+	IfaceName string
+	IfaceType string
+	MacAddr   string
+	OfPort    uint32
+	Options   map[string]string
+}
+
+func (self *OvsDriver) CreateOvsPort(portName, portType string, interfaces []Iface, vlanTag uint) error {
+	portUuidStr := portName
+
+	var intfUuidStr string
+	portUuid := []libovsdb.UUID{{GoUuid: portUuidStr}}
+	intfUuid := []libovsdb.UUID{}
+	var intfOperations []libovsdb.Operation
+	opStr := "insert"
+	for _, iface := range interfaces {
+		if iface.Options == nil {
+			iface.Options = make(map[string]string)
+		}
+		ovsOptions, _ := libovsdb.NewOvsMap(iface.Options)
+		intfUuidStr = fmt.Sprintf("intf%s", iface.IfaceName)
+		intfUuid = append(intfUuid, libovsdb.UUID{GoUuid: intfUuidStr})
+
+		intf := make(map[string]interface{})
+		intf["name"] = iface.IfaceName
+		intf["type"] = iface.IfaceType
+		intf["ofport"] = float64(iface.OfPort)
+		intf["mac_in_use"] = iface.MacAddr
+		intf["options"] = ovsOptions
+
+		intfOp := libovsdb.Operation{
+			Op:       opStr,
+			Table:    "Interface",
+			Row:      intf,
+			UUIDName: intfUuidStr,
+		}
+
+		intfOperations = append(intfOperations, intfOp)
+	}
+	var err error
+
+	// insert/delete a row in Port table
+	port := make(map[string]interface{})
+	port["name"] = portName
+	if vlanTag != 0 {
+		port["vlan_mode"] = "access"
+		port["tag"] = vlanTag
+	} else {
+		port["vlan_mode"] = "trunk"
+	}
+
+	port["interfaces"], err = libovsdb.NewOvsSet(intfUuid)
+	if err != nil {
+		return err
+	}
+
+	// Add an entry in Port table
+	portOp := libovsdb.Operation{
+		Op:       opStr,
+		Table:    "Port",
+		Row:      port,
+		UUIDName: portUuidStr,
+	}
+
+	// mutate the Ports column of the row in the Bridge table
+	mutateSet, _ := libovsdb.NewOvsSet(portUuid)
+	mutation := libovsdb.NewMutation("ports", opStr, mutateSet)
+	condition := libovsdb.NewCondition("name", "==", self.OvsBridgeName)
+	mutateOp := libovsdb.Operation{
+		Op:        "mutate",
+		Table:     "Bridge",
+		Mutations: []interface{}{mutation},
+		Where:     []interface{}{condition},
+	}
+
+	// Perform OVS transaction
+	var operations []libovsdb.Operation
+	operations = append(operations, intfOperations...)
+	operations = append(operations, portOp, mutateOp)
+
+	return self.ovsdbTransact(operations)
+}
+
+func (self *OvsDriver) DeleteOvsPort(portName string, interfaces []Iface) error {
+	portUuidStr := portName
+	portUuid := []libovsdb.UUID{{GoUuid: portUuidStr}}
+	opStr := "delete"
+
+	var intfOperations []libovsdb.Operation
+	for _, iface := range interfaces {
+		condition := libovsdb.NewCondition("name", "==", iface.IfaceName)
+		intfOp := libovsdb.Operation{
+			Op:    opStr,
+			Table: "Interface",
+			Where: []interface{}{condition},
+		}
+
+		intfOperations = append(intfOperations, intfOp)
+	}
+
+	// Delete a row in Port table
+	condition := libovsdb.NewCondition("name", "==", portName)
+	portOperation := libovsdb.Operation{
+		Op:    opStr,
+		Table: "Port",
+		Where: []interface{}{condition},
+	}
+
+	// also fetch the port-uuid from cache
+	self.lock.Lock()
+	for uuid, row := range self.ovsdbCache["Port"] {
+		name := row.Fields["name"].(string)
+		if name == portName {
+			portUuid = []libovsdb.UUID{{GoUuid: uuid}}
+			break
+		}
+	}
+	self.lock.Unlock()
+
+	// mutate the Ports column of the row in the Bridge table
+	mutateSet, _ := libovsdb.NewOvsSet(portUuid)
+	mutation := libovsdb.NewMutation("ports", opStr, mutateSet)
+	condition = libovsdb.NewCondition("name", "==", self.OvsBridgeName)
+	mutateOperation := libovsdb.Operation{
+		Op:        "mutate",
+		Table:     "Bridge",
+		Mutations: []interface{}{mutation},
+		Where:     []interface{}{condition},
+	}
+
+	var operations []libovsdb.Operation
+	operations = append(operations, intfOperations...)
+	operations = append(operations, portOperation, mutateOperation)
+
+	return self.ovsdbTransact(operations)
+}
+
+func (self *OvsDriver) UpdatePort(portName string, externalIDs map[string]string) error {
+	if externalIDs == nil {
+		externalIDs = make(map[string]string)
+	}
+	ovsExternalIDs, _ := libovsdb.NewOvsMap(externalIDs)
+
+	portOperation := libovsdb.Operation{
+		Op:    "update",
+		Table: "Port",
+		Row: map[string]interface{}{
+			"external_ids": ovsExternalIDs,
+		},
+		Where: []interface{}{[]interface{}{"name", "==", portName}},
+	}
+
+	return self.ovsdbTransact([]libovsdb.Operation{portOperation})
+}
+
+func (self *OvsDriver) UpdateBondMode(portName string, bondMode string) error {
+	portOperation := libovsdb.Operation{
+		Op:    "update",
+		Table: "Port",
+		Row: map[string]interface{}{
+			"bond_mode": bondMode,
+		},
+		Where: []interface{}{[]interface{}{"name", "==", portName}},
+	}
+
+	return self.ovsdbTransact([]libovsdb.Operation{portOperation})
+}
+
+func (self *OvsDriver) UpdateBondActiveSlave(portName string, activeSlaveMacStr string) error {
+	portOperation := libovsdb.Operation{
+		Op:    "update",
+		Table: "Port",
+		Row: map[string]interface{}{
+			"bond_active_slave": activeSlaveMacStr,
+		},
+		Where: []interface{}{[]interface{}{"name", "==", portName}},
+	}
+
+	return self.ovsdbTransact([]libovsdb.Operation{portOperation})
+}
+
+func (self *OvsDriver) GetBondInfo(portName string) (string, string, []string) {
+	self.lock.Lock()
+	defer self.lock.Unlock()
+
+	var bondInterfaceUUIds []libovsdb.UUID
+	var curActiveSlaveMacAddrStr string
+	var curBondMode string
+	var nonActiveSlaveMacAddrStr []string
+
+	for _, row := range self.ovsdbCache["Port"] {
+		name := row.Fields["name"].(string)
+		if name == portName {
+			bondInterfaceUUIds = listUUID(row.Fields["interfaces"])
+			curActiveSlaveMacAddrStr, _ = row.Fields["bond_active_slave"].(string)
+			curBondMode, _ = row.Fields["bond_mode"].(string)
+			break
+		}
+	}
+
+	for _, interfaceUUId := range bondInterfaceUUIds {
+		ovsInterface, ok := self.ovsdbCache["Interface"][interfaceUUId.GoUuid]
+		if !ok {
+			log.Infof("Failed to get bonded uplink port interface: %+v", interfaceUUId)
+			continue
+		}
+
+		interfaceMac, _ := ovsInterface.Fields["mac_in_use"].(string)
+		if interfaceMac == curActiveSlaveMacAddrStr {
+			continue
+		}
+
+		nonActiveSlaveMacAddrStr = append(nonActiveSlaveMacAddrStr, interfaceMac)
+	}
+
+	return curBondMode, curActiveSlaveMacAddrStr, nonActiveSlaveMacAddrStr
+}
+
+func listUUID(uuidList interface{}) []libovsdb.UUID {
+	var idList []libovsdb.UUID
+
+	switch uuidList.(type) {
+	case libovsdb.UUID:
+		return []libovsdb.UUID{uuidList.(libovsdb.UUID)}
+	case libovsdb.OvsSet:
+		uuidSet := uuidList.(libovsdb.OvsSet).GoSet
+		for item := range uuidSet {
+			idList = append(idList, listUUID(uuidSet[item])...)
+		}
+	}
+
+	return idList
 }
 
 // Create an internal port in OVS
