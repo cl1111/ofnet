@@ -949,6 +949,10 @@ func (self *Flow) installFlowActions(flowMod *openflow13.FlowMod,
 	return nil
 }
 
+func InstallFlow(flow *Flow) error {
+	return flow.install()
+}
+
 // Install a flow entry
 func (self *Flow) install() error {
 	// Create a flowmode entry
@@ -1333,18 +1337,18 @@ func (self *Flow) Delete() error {
 func DeleteFlow(table *Table, priority uint16, flowID uint64) error {
 	// Create a flow mode entry
 	flowMod := openflow13.NewFlowMod()
-	flowMod.Command = openflow13.FC_DELETE
-	flowMod.TableId = table.TableId
-	flowMod.Priority = priority
-	flowMod.Cookie = flowID
-	flowMod.CookieMask = uint64(0xffffffffffffffff)
-	flowMod.OutPort = openflow13.P_ANY
-	flowMod.OutGroup = openflow13.OFPG_ANY
+    flowMod.Command = openflow13.FC_DELETE
+    flowMod.TableId = table.TableId
+    flowMod.Priority = priority
+    flowMod.Cookie = flowID
+    flowMod.CookieMask = uint64(0xffffffffffffffff)
+    flowMod.OutPort = openflow13.P_ANY
+    flowMod.OutGroup = openflow13.OFPG_ANY
 
-	log.Debugf("Sending DELETE flow mod: %+v", flowMod)
+    log.Debugf("Sending DELETE flow mod: %+v", flowMod)
 
-	// Send the message
-	if table.Switch == nil {
+    // Send the message
+    if table.Switch == nil {
 		return dperror.NewDpError(dperror.SwitchDisconnectedError.Code, dperror.SwitchDisconnectedError.Msg, fmt.Errorf("ofSwitch disconnected"))
 	}
 	table.Switch.Send(flowMod)

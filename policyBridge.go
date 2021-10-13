@@ -91,7 +91,6 @@ func (p *PolicyBridge) SwitchConnected(sw *ofctrl.OFSwitch) {
 	log.Infof("Switch %s connected", p.name)
 
 	p.ofSwitch = sw
-	log.Infof("cls switch connected : %v", p.datapathManager.OfSwitchMap)
 	vdsname := strings.Split(p.name, "-")[0]
 	p.datapathManager.OfSwitchMap[vdsname]["policy"] = sw
 
@@ -102,12 +101,11 @@ func (p *PolicyBridge) SwitchConnected(sw *ofctrl.OFSwitch) {
 
 func (p *PolicyBridge) SwitchDisconnected(sw *ofctrl.OFSwitch) {
 	log.Infof("Switch %s disconnected", p.name)
-
-	p.ofSwitch = nil
-
 	p.policySwitchStatusMutex.Lock()
 	p.isPolicySwitchConnected = false
 	p.policySwitchStatusMutex.Unlock()
+
+	p.ofSwitch = nil
 }
 
 func (p *PolicyBridge) IsSwitchConnected() bool {
@@ -138,6 +136,7 @@ func (p *PolicyBridge) MultipartReply(sw *ofctrl.OFSwitch, rep *openflow13.Multi
 }
 
 func (p *PolicyBridge) BridgeInit() error {
+	log.Infof("init policy bridge")
 	sw := p.ofSwitch
 
 	p.inputTable = sw.DefaultTable()

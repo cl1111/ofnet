@@ -70,7 +70,6 @@ func NewLocalBridge(brName string, datapathManager *DatapathManager) *LocalBridg
 func (l *LocalBridge) SwitchConnected(sw *ofctrl.OFSwitch) {
 	log.Infof("Switch %s connected", l.name)
 
-	log.Infof("cls switch connected : %v", l.datapathManager.OfSwitchMap)
 	vdsname := strings.Split(l.name, "-")[0]
 	l.datapathManager.OfSwitchMap[vdsname]["local"] = sw
 	l.ofSwitch = sw
@@ -82,12 +81,11 @@ func (l *LocalBridge) SwitchConnected(sw *ofctrl.OFSwitch) {
 
 func (l *LocalBridge) SwitchDisconnected(sw *ofctrl.OFSwitch) {
 	log.Infof("Switch %s disconnected", l.name)
-
-	l.ofSwitch = nil
-
 	l.localSwitchStatusMuxtex.Lock()
 	l.isLocalSwitchConnected = false
 	l.localSwitchStatusMuxtex.Unlock()
+
+	l.ofSwitch = nil
 }
 
 func (l *LocalBridge) IsSwitchConnected() bool {
@@ -277,6 +275,7 @@ func (l *LocalBridge) arpOutput(pkt protocol.Ethernet, inPort uint32, outputPort
 
 // specific type Bridge interface
 func (l *LocalBridge) BridgeInit() error {
+	log.Infof("init local bridge")
 	l.vlanInputTable = l.ofSwitch.DefaultTable()
 	l.localEndpointL2ForwardingTable, _ = l.ofSwitch.NewTable(L2_FORWARDING_TABLE)
 	l.localEndpointL2LearningTable, _ = l.ofSwitch.NewTable(L2_LEARNING_TABLE)
@@ -371,7 +370,6 @@ func (l *LocalBridge) BridgeReset() error {
 }
 
 func (l *LocalBridge) AddLocalEndpoint(endpoint *Endpoint) error {
-
 	// Table 0, from local endpoint
 	var vlanIdMask uint16 = 0x1fff
 	vlanInputTableFromLocalFlow, _ := l.vlanInputTable.NewFlow(ofctrl.FlowMatch{
@@ -400,6 +398,13 @@ func (l *LocalBridge) AddLocalEndpoint(endpoint *Endpoint) error {
 	log.Infof("add local to local flow: %v", localToLocalBUMFlow)
 	l.localToLocalBUMFlow[endpoint.PortNo] = localToLocalBUMFlow
 
+	flowCacheEntryMap := flowCacheEntryMap{}
+	log.Infof("###### vlan input from local endpoint flow match: %v", vlanInputTableFromLocalFlow.Match)
+	flowCacheEntryMap[vlanInputTableFromLocalFlow.FlowKey()] = vlanInputTableFromLocalFlow
+	log.Infof("###### local to local bum flow match: %v", localToLocalBUMFlow.Match)
+	flowCacheEntryMap[localToLocalBUMFlow.FlowKey()] = localToLocalBUMFlow
+	l.datapathManager.localEndpointFlowCache.Store(fmt.Sprintf("%s-%d", l.name, endpoint.PortNo), flowCacheEntryMap)
+
 	return nil
 }
 
@@ -416,6 +421,7 @@ func (l *LocalBridge) RemoveLocalEndpoint(endpoint *Endpoint) error {
 	delete(l.localToLocalBUMFlow, endpoint.PortNo)
 
 	// remote table 1 local to local bum redirect flow
+	l.datapathManager.localEndpointFlowCache.Delete(fmt.Sprintf("%s-%d", l.name, endpoint.PortNo))
 	return nil
 }
 

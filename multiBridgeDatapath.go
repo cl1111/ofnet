@@ -1,15 +1,20 @@
 package ofnet
 
 import (
+	"bytes"
 	"fmt"
 	"net"
+	// "os"
+	"os/exec"
 	"reflect"
 	"sync"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/contiv/libOpenflow/openflow13"
+	"github.com/fsnotify/fsnotify"
 	cmap "github.com/streamrail/concurrent-map"
+	// "k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/contiv/ofnet/ofctrl"
 	"github.com/contiv/ofnet/ofctrl/cookie"
@@ -45,6 +50,20 @@ const (
 	CLS_BRIDGE_KEYWORD    = "cls"
 	UPLINK_BRIDGE_KEYWORD = "uplink"
 )
+
+var (
+	ovsVswitchdUnixDomainSockPath   string = "/var/run/openvswitch"
+	ovsVswitchdUnixDomainSockSuffix string = "mgmt"
+)
+
+const (
+	openflowProtorolVersion10 string = "OpenFlow10"
+	openflowProtorolVersion11 string = "OpenFlow11"
+	openflowProtorolVersion12 string = "OpenFlow12"
+	openflowProtorolVersion13 string = "OpenFlow13"
+)
+
+type flowCacheEntryMap map[string]*ofctrl.Flow //map from flow match string to Flow
 
 type Bridge interface {
 	BridgeInit() error
@@ -84,9 +103,13 @@ type DatapathManager struct {
 
 	localEndpointDB           cmap.ConcurrentMap       // list of local endpoint map
 	ofPortIpAddressUpdateChan chan map[string][]net.IP // map bridgename-ofport to endpoint ips
-	datapathConfig            *DatapathConfig
+	DatapathConfig            *DatapathConfig
 	ruleMux                   sync.RWMutex
 	Rules                     map[string]*EveroutePolicyRuleEntry // rules database
+	ovsVswitchdStartChan      chan struct{}                       // ovs-vswitchd status monitor chan
+	ovsVswitchdStopChan       chan struct{}                       // ovs-vswitchd status monitor chan
+	localEndpointFlowCache    sync.Map                            // store local endpoint flow
+	flowReplayMuxtex          sync.RWMutex
 }
 
 type DatapathConfig struct {
@@ -134,8 +157,10 @@ func NewDatapathManager(datapathConfig *DatapathConfig, ofPortIpAddressUpdateCha
 	datapathManager.ControllerMap = make(map[string]map[string]*ofctrl.Controller)
 	datapathManager.Rules = make(map[string]*EveroutePolicyRuleEntry)
 	// NOTE deepcopy
-	datapathManager.datapathConfig = datapathConfig
+	datapathManager.DatapathConfig = datapathConfig
 	datapathManager.localEndpointDB = cmap.New()
+	datapathManager.ovsVswitchdStartChan = make(chan struct{}, 10)
+	datapathManager.ovsVswitchdStopChan = make(chan struct{}, 10)
 
 	var vdsCount int = 0
 	// vdsID equals to ovsbrname
@@ -180,21 +205,23 @@ func NewDatapathManager(datapathConfig *DatapathConfig, ofPortIpAddressUpdateCha
 		vdsOvsdbDriverMap["cls"] = ovsdbDriver.NewOvsDriver(clsBridge.name)
 		vdsOvsdbDriverMap["uplink"] = ovsdbDriver.NewOvsDriver(uplinkBridge.name)
 		datapathManager.OvsdbDriverMap[vdsID] = vdsOvsdbDriverMap
-		if err := datapathManager.OvsdbDriverMap[vdsID][LOCAL_BRIDGE_KEYWORD].AddController(LOOP_BACK_ADDR,
-			uint16(vdsOfControllerMap[LOCAL_BRIDGE_KEYWORD].GetListenPort())); err != nil {
-			log.Fatalf("Failed to add local bridge controller to ovsdb, error: %v", err)
+
+		protocols := map[string][]string{
+			"protocols": {
+				openflowProtorolVersion10, openflowProtorolVersion11, openflowProtorolVersion12, openflowProtorolVersion13,
+			},
 		}
-		if err := datapathManager.OvsdbDriverMap[vdsID][POLICY_BRIDGE_KEYWORD].AddController(LOOP_BACK_ADDR,
-			uint16(vdsOfControllerMap[POLICY_BRIDGE_KEYWORD].GetListenPort())); err != nil {
-			log.Fatalf("Failed to add policy bridge controller to ovsdb, error: %v", err)
+		if err := vdsOvsdbDriverMap["local"].UpdateBridge(protocols); err != nil {
+			log.Fatalf("Failed to set local bridge: %v protocols, error: %v", vdsID, err)
 		}
-		if err := datapathManager.OvsdbDriverMap[vdsID][CLS_BRIDGE_KEYWORD].AddController(LOOP_BACK_ADDR,
-			uint16(vdsOfControllerMap[CLS_BRIDGE_KEYWORD].GetListenPort())); err != nil {
-			log.Fatalf("Failed to add cls bridge controller to ovsdb, error: %v", err)
+		if err := vdsOvsdbDriverMap["policy"].UpdateBridge(protocols); err != nil {
+			log.Fatalf("Failed to set policy bridge: %v protocols, error: %v", vdsID, err)
 		}
-		if err := datapathManager.OvsdbDriverMap[vdsID][UPLINK_BRIDGE_KEYWORD].AddController(LOOP_BACK_ADDR,
-			uint16(vdsOfControllerMap[UPLINK_BRIDGE_KEYWORD].GetListenPort())); err != nil {
-			log.Fatalf("Failed to add uplink bridge controller to ovsdb, error: %v", err)
+		if err := vdsOvsdbDriverMap["cls"].UpdateBridge(protocols); err != nil {
+			log.Fatalf("Failed to set cls bridge: %v protocols, error: %v", vdsID, err)
+		}
+		if err := vdsOvsdbDriverMap["uplink"].UpdateBridge(protocols); err != nil {
+			log.Fatalf("Failed to set uplink bridge: %v protocols, error: %v", vdsID, err)
 		}
 
 		vdsCount++
@@ -205,13 +232,21 @@ func NewDatapathManager(datapathConfig *DatapathConfig, ofPortIpAddressUpdateCha
 	return datapathManager
 }
 
-func (datapathManager *DatapathManager) InitializeDatapath() {
+func (datapathManager *DatapathManager) InitializeDatapath(stopChan chan struct{}) {
+	if err := datapathManager.removeController(); err != nil {
+		log.Fatalf("Failed to clean old controller config, error: %v", err)
+	}
+
+	if err := datapathManager.addController(); err != nil {
+		log.Fatalf("Failed to add new controller config, error: %v", err)
+	}
+
 	if !datapathManager.IsBridgesConnected() {
 		datapathManager.WaitForBridgeConnected()
 	}
 
 	var randID string
-	for vdsID := range datapathManager.datapathConfig.ManagedVDSMap {
+	for vdsID := range datapathManager.DatapathConfig.ManagedVDSMap {
 		randID = vdsID
 	}
 	roundInfo, err := getRoundInfo(datapathManager.OvsdbDriverMap[randID]["local"])
@@ -220,7 +255,7 @@ func (datapathManager *DatapathManager) InitializeDatapath() {
 	}
 
 	// Delete flow with curRoundNum cookie, for case: failed when restart process flow install.
-	for vdsID := range datapathManager.datapathConfig.ManagedVDSMap {
+	for vdsID := range datapathManager.DatapathConfig.ManagedVDSMap {
 		datapathManager.OfSwitchMap[vdsID]["local"].DeleteFlowByRoundInfo(roundInfo.curRoundNum)
 		datapathManager.OfSwitchMap[vdsID]["policy"].DeleteFlowByRoundInfo(roundInfo.curRoundNum)
 		datapathManager.OfSwitchMap[vdsID]["cls"].DeleteFlowByRoundInfo(roundInfo.curRoundNum)
@@ -229,7 +264,7 @@ func (datapathManager *DatapathManager) InitializeDatapath() {
 
 	cookieAllocator := cookie.NewAllocator(roundInfo.curRoundNum)
 
-	for vdsID := range datapathManager.datapathConfig.ManagedVDSMap {
+	for vdsID := range datapathManager.DatapathConfig.ManagedVDSMap {
 		datapathManager.OfSwitchMap[vdsID]["local"].CookieAllocator = cookieAllocator
 		datapathManager.OfSwitchMap[vdsID]["policy"].CookieAllocator = cookieAllocator
 		datapathManager.OfSwitchMap[vdsID]["cls"].CookieAllocator = cookieAllocator
@@ -239,6 +274,10 @@ func (datapathManager *DatapathManager) InitializeDatapath() {
 		datapathManager.BridgeChainMap[vdsID]["policy"].BridgeInit()
 		datapathManager.BridgeChainMap[vdsID]["cls"].BridgeInit()
 		datapathManager.BridgeChainMap[vdsID]["uplink"].BridgeInit()
+		if err := SetPortNoFlood(datapathManager.BridgeChainMap[vdsID][LOCAL_BRIDGE_KEYWORD].(*LocalBridge).name,
+			LOCAL_TO_POLICY_PORT); err != nil {
+			log.Fatalf("Failed to set local to policy port with no flood port mode, %v", err)
+		}
 
 		// Delete flow with previousRoundNum cookie, and then persistent curRoundNum to ovsdb. We need to wait for long
 		// enough to guarantee that all of the basic flow which we are still required updated with new roundInfo encoding to
@@ -260,8 +299,125 @@ func (datapathManager *DatapathManager) InitializeDatapath() {
 			}
 		}(vdsID)
 	}
+
+	VswitchdUnixSock := fmt.Sprintf("%s/%s.%s", ovsVswitchdUnixDomainSockPath, randID, ovsVswitchdUnixDomainSockSuffix)
+	go watchFile(VswitchdUnixSock, datapathManager.ovsVswitchdStartChan, datapathManager.ovsVswitchdStopChan)
+
+	go func() {
+		for {
+			// capture replay signal
+			// log.Infof("###### wait for ovs-vswitchd status update")
+			// if _, ok := <-datapathManager.ovsVswitchdStopChan; ok {
+			// 	log.Infof("vswitchd crash event")
+			// }
+
+			// if _, ok := <-datapathManager.ovsVswitchdStartChan; !ok {
+			// 	return
+			// }
+            select {
+                case <-datapathManager.ovsVswitchdStopChan:
+                    log.Infof("vswitchd crash event")
+                    continue
+                case <-datapathManager.ovsVswitchdStartChan:
+                    log.Infof("####### vswitchd restarted")
+                    // first vswitchd crash trigger datapath in disconnected status, then, we try to wait datapath reconnected and
+                    // replay flow. TODO wait for datapath into disconnected status.
+                    // reconnect complete
+                    datapathManager.replayFlows()
+
+                    // flow restore wait config restore
+            }
+
+		}
+	}()
 }
 
+func (datapathManager *DatapathManager) addController() error {
+	for vdsID := range datapathManager.DatapathConfig.ManagedVDSMap {
+		if err := datapathManager.OvsdbDriverMap[vdsID][LOCAL_BRIDGE_KEYWORD].AddController(LOOP_BACK_ADDR,
+			uint16(datapathManager.ControllerMap[vdsID][LOCAL_BRIDGE_KEYWORD].GetListenPort())); err != nil {
+			return fmt.Errorf("failed to add local bridge controller to ovsdb, error: %v", err)
+		}
+		if err := datapathManager.OvsdbDriverMap[vdsID][POLICY_BRIDGE_KEYWORD].AddController(LOOP_BACK_ADDR,
+			uint16(datapathManager.ControllerMap[vdsID][POLICY_BRIDGE_KEYWORD].GetListenPort())); err != nil {
+			return fmt.Errorf("failed to add policy bridge controller to ovsdb, error: %v", err)
+		}
+		if err := datapathManager.OvsdbDriverMap[vdsID][CLS_BRIDGE_KEYWORD].AddController(LOOP_BACK_ADDR,
+			uint16(datapathManager.ControllerMap[vdsID][CLS_BRIDGE_KEYWORD].GetListenPort())); err != nil {
+			return fmt.Errorf("failed to add cls bridge controller to ovsdb, error: %v", err)
+		}
+		if err := datapathManager.OvsdbDriverMap[vdsID][UPLINK_BRIDGE_KEYWORD].AddController(LOOP_BACK_ADDR,
+			uint16(datapathManager.ControllerMap[vdsID][UPLINK_BRIDGE_KEYWORD].GetListenPort())); err != nil {
+			return fmt.Errorf("failed to add uplink bridge controller to ovsdb, error: %v", err)
+		}
+	}
+
+	return nil
+}
+
+func (datapathManager *DatapathManager) removeController() error {
+	for vdsID := range datapathManager.DatapathConfig.ManagedVDSMap {
+		if err := datapathManager.OvsdbDriverMap[vdsID][LOCAL_BRIDGE_KEYWORD].RemoveController(); err != nil {
+			return fmt.Errorf("failed to add local bridge controller to ovsdb, error: %v", err)
+		}
+		if err := datapathManager.OvsdbDriverMap[vdsID][POLICY_BRIDGE_KEYWORD].RemoveController(); err != nil {
+			return fmt.Errorf("failed to add policy bridge controller to ovsdb, error: %v", err)
+		}
+		if err := datapathManager.OvsdbDriverMap[vdsID][CLS_BRIDGE_KEYWORD].RemoveController(); err != nil {
+			return fmt.Errorf("failed to add cls bridge controller to ovsdb, error: %v", err)
+		}
+		if err := datapathManager.OvsdbDriverMap[vdsID][UPLINK_BRIDGE_KEYWORD].RemoveController(); err != nil {
+			return fmt.Errorf("failed to add uplink bridge controller to ovsdb, error: %v", err)
+		}
+	}
+
+	return nil
+}
+
+func (datapathManager *DatapathManager) replayFlows() {
+	datapathManager.flowReplayMuxtex.Lock()
+	defer datapathManager.flowReplayMuxtex.Unlock()
+
+	if !datapathManager.IsBridgesConnected() {
+		// 1 second retry interval is too long
+		datapathManager.WaitForBridgeConnected()
+	}
+    log.Infof("$$$$$$$ vds config map %v", datapathManager.DatapathConfig.ManagedVDSMap)
+	// replay basic connectivity flow
+	for vdsID := range datapathManager.DatapathConfig.ManagedVDSMap {
+        log.Debugf("$$$$$$$ re-initialize vds %v", vdsID)
+        log.Infof("$$$$$$$ re-initialize vds %v", vdsID)
+		datapathManager.BridgeChainMap[vdsID][LOCAL_BRIDGE_KEYWORD].BridgeInit()
+		datapathManager.BridgeChainMap[vdsID][POLICY_BRIDGE_KEYWORD].BridgeInit()
+		datapathManager.BridgeChainMap[vdsID][CLS_BRIDGE_KEYWORD].BridgeInit()
+		datapathManager.BridgeChainMap[vdsID][UPLINK_BRIDGE_KEYWORD].BridgeInit()
+	}
+
+	// replay local endpoint flow
+	installCachedFlow := func(key, value interface{}) bool {
+		flowCacheEntryMap := value.(flowCacheEntryMap)
+		for _, flow := range flowCacheEntryMap {
+			log.Infof("$$$$$$$ replay local endpoint flow: %v %v", key, flow.Match)
+			if err := ofctrl.InstallFlow(flow); err != nil {
+				log.Errorf("Failed to install local endpoint flow: %v while replay flow, error: %v", flow, err)
+			}
+		}
+
+		return true
+	}
+	datapathManager.localEndpointFlowCache.Range(installCachedFlow)
+
+	// replay policy flow
+	for _, ERRuleEntry := range datapathManager.Rules {
+		for vdsId := range datapathManager.DatapathConfig.ManagedVDSMap {
+			flow := ERRuleEntry.RuleFlowMap[vdsId]
+			log.Infof("$$$$$$$ replay policy flow: %v", flow)
+			if err := ofctrl.InstallFlow(flow); err != nil {
+				log.Errorf("Failed to install flow: %v while replay flow, error: %v", flow, err)
+			}
+		}
+	}
+}
 func (datapathManager *DatapathManager) WaitForBridgeConnected() {
 	for i := 0; i < 20; i++ {
 		time.Sleep(1 * time.Second)
@@ -297,7 +453,7 @@ func (datapathManager *DatapathManager) IsBridgesConnected() bool {
 }
 
 func (datapathManager *DatapathManager) AddLocalEndpoint(endpoint *Endpoint) error {
-	for vdsID, ovsbrname := range datapathManager.datapathConfig.ManagedVDSMap {
+	for vdsID, ovsbrname := range datapathManager.DatapathConfig.ManagedVDSMap {
 		if ovsbrname == endpoint.BridgeName {
 			if ep, _ := datapathManager.localEndpointDB.Get(fmt.Sprintf("%s-%d", ovsbrname, endpoint.PortNo)); ep != nil {
 				log.Errorf("Already added local endpoint: %v", ep)
@@ -323,7 +479,7 @@ func (datapathManager *DatapathManager) UpdateLocalEndpoint() {
 }
 
 func (datapathManager *DatapathManager) RemoveLocalEndpoint(endpoint *Endpoint) error {
-	for vdsID, ovsbrname := range datapathManager.datapathConfig.ManagedVDSMap {
+	for vdsID, ovsbrname := range datapathManager.DatapathConfig.ManagedVDSMap {
 		if ovsbrname != endpoint.BridgeName {
 			continue
 		}
@@ -473,3 +629,76 @@ func DeepCopyMap(theMap interface{}) interface{} {
 
 // 	return ovsdbDriver.SetExternalIds(externalIds)
 // }
+
+func watchFile(fileName string, ovsVswitchdStartChan chan struct{}, ovsVswitchdStopChan chan struct{}) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		fmt.Printf("")
+	}
+	defer watcher.Close()
+
+	done := make(chan bool)
+
+	go func() {
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				if event.Op&fsnotify.Create == fsnotify.Create {
+					ovsVswitchdStartChan <- struct{}{}
+					fmt.Println("create event")
+				}
+				if event.Op&fsnotify.Remove == fsnotify.Remove {
+					ovsVswitchdStopChan <- struct{}{}
+					fmt.Println("remove event")
+					// notify ovs-vswitchd process status change, too many ovs-vswitchd restart may be block
+					// wait.PollImmediate(100*time.Millisecond, 10*time.Second, func() (do bool, err error) {
+					// 	if _, err := os.Stat(fileName); os.IsNotExist(err) {
+					// 		log.Printf("vswitchd unix sock not found")
+					// 		return false, nil
+					// 	}
+
+					// 	if err := addWatchFile(watcher, fileName); err != nil {
+					// 		log.Printf("failed to watch vswitchd unix sock, error: %v", err)
+					// 		return false, nil
+					// 	}
+
+					// 	log.Printf("watch vswitchd unix sock created")
+					// 	return true, nil
+					// })
+				}
+			case err := <-watcher.Errors:
+				fmt.Println("error", err)
+			}
+		}
+	}()
+
+	if err := addWatchFile(watcher, fileName); err != nil {
+		log.Fatalf("Failed to add file to watcher, error: %v", err)
+	}
+
+	<-done
+}
+
+func addWatchFile(watcher *fsnotify.Watcher, filepath string) error {
+	if err := watcher.Add(filepath); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func SetPortNoFlood(bridge string, ofport int) error {
+	cmdStr := fmt.Sprintf("ovs-ofctl mod-port %s %d no-flood", bridge, ofport)
+	cmd := exec.Command("/bin/sh", "-c", cmdStr)
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("fail to set no-food config for port %d on bridge %s: %v, stderr: %s", ofport, bridge, err, string(stderr.Bytes()))
+	}
+	return nil
+}

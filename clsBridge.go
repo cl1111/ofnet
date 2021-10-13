@@ -62,9 +62,7 @@ func (c *ClsBridge) SwitchConnected(sw *ofctrl.OFSwitch) {
 	log.Infof("Switch %s connected", c.name)
 
 	c.ofSwitch = sw
-	log.Infof("cls switch connected : %v, $$$$ c.name", c.datapathManager.OfSwitchMap)
 	vdsname := strings.Split(c.name, "-")[0]
-	log.Infof("vdsname is $$$$$$ %v", vdsname)
 	c.datapathManager.OfSwitchMap[vdsname]["cls"] = sw
 
 	c.clsSwitchStatusMutex.Lock()
@@ -74,12 +72,11 @@ func (c *ClsBridge) SwitchConnected(sw *ofctrl.OFSwitch) {
 
 func (c *ClsBridge) SwitchDisconnected(sw *ofctrl.OFSwitch) {
 	log.Infof("Switch %s disconnected", c.name)
-
-	c.ofSwitch = nil
-
 	c.clsSwitchStatusMutex.Lock()
 	c.isClsSwitchConnected = false
 	c.clsSwitchStatusMutex.Unlock()
+
+	c.ofSwitch = nil
 }
 
 func (c *ClsBridge) IsSwitchConnected() bool {
@@ -110,6 +107,7 @@ func (c *ClsBridge) MultipartReply(sw *ofctrl.OFSwitch, rep *openflow13.Multipar
 }
 
 func (c *ClsBridge) BridgeInit() error {
+	log.Infof("init cls bridge")
 	c.clsBridgeLearningTable = c.ofSwitch.DefaultTable()
 	c.clsBridgeForwardingTable, _ = c.ofSwitch.NewTable(CLSBRIDGE_FORWARDING_TABLE_ID)
 	c.clsBridgeOutputTable, _ = c.ofSwitch.NewTable(CLSBRIDGE_OUTPUT_TABLE_ID)

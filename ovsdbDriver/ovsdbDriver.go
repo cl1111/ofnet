@@ -306,6 +306,7 @@ func (self *OvsDriver) DeleteBridge(bridgeName string) error {
 	return self.ovsdbTransact(operations)
 }
 
+// update bridge protocols column
 func (self *OvsDriver) UpdateBridge(attrMap map[string][]string) error {
 	var updateOperations []libovsdb.Operation
 	condition := libovsdb.NewCondition("name", "==", self.OvsBridgeName)

@@ -3,7 +3,7 @@ package main
 import (
 	// "fmt"
 	"net"
-	"sync"
+	// "sync"
 	// "time"
 
 	log "github.com/Sirupsen/logrus"
@@ -151,6 +151,7 @@ var (
 func main() {
 	var err error
 	ofPortIpAddressUpdateMonitorChan := make(chan map[string][]net.IP, 1024)
+	stopChan := make(chan struct{})
 
 	datapathManager := ofnet.NewDatapathManager(&datapathConfig, ofPortIpAddressUpdateMonitorChan)
 
@@ -204,8 +205,28 @@ func main() {
 	// 	vdsCount++
 	// }
 
+	// clear controller config
+	// cleanController := func(datapathManager *ofnet.DatapathManager) {
+	// log.Infof("######## remove controller in main ")
+	// 	for vdsID := range datapathManager.DatapathConfig.ManagedVDSMap {
+	// 		if err := datapathManager.OvsdbDriverMap[vdsID][ofnet.LOCAL_BRIDGE_KEYWORD].RemoveController(); err != nil {
+	// 			log.Fatalf("Failed to remove local bridge controller to ovsdb, error: %v", err)
+	// 		}
+	// 		if err := datapathManager.OvsdbDriverMap[vdsID][ofnet.POLICY_BRIDGE_KEYWORD].RemoveController(); err != nil {
+	// 			log.Fatalf("Failed to remove policy bridge controller to ovsdb, error: %v", err)
+	// 		}
+	// 		if err := datapathManager.OvsdbDriverMap[vdsID][ofnet.CLS_BRIDGE_KEYWORD].RemoveController(); err != nil {
+	// 			log.Fatalf("Failed to remove cls bridge controller to ovsdb, error: %v", err)
+	// 		}
+	// 		if err := datapathManager.OvsdbDriverMap[vdsID][ofnet.UPLINK_BRIDGE_KEYWORD].RemoveController(); err != nil {
+	// 			log.Fatalf("Failed to remove uplink bridge controller to ovsdb, error: %v", err)
+	// 		}
+	// 	}
+	// }
+	// cleanController(datapathManager)
+
 	// make sure that all of datapath ofswitch is connected before initialize datapath
-	datapathManager.InitializeDatapath()
+	datapathManager.InitializeDatapath(stopChan)
 
 	ovsClient, err := libovsdb.ConnectUnix("/var/run/openvswitch/db.sock")
 	if err != nil {
@@ -231,10 +252,13 @@ func main() {
 		log.Fatalf("Failed to start ovsdbEventHandler: %v", err)
 	}
 
+	log.Infof("###### add rule to datatpath")
 	datapathManager.AddEveroutePolicyRule(rule1, ofnet.POLICY_DIRECTION_IN, ofnet.POLICY_TIER2)
 	datapathManager.AddEveroutePolicyRule(rule2, ofnet.POLICY_DIRECTION_OUT, ofnet.POLICY_TIER2)
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	wg.Wait()
+	<-stopChan
+
+	// var wg sync.WaitGroup
+	// wg.Add(1)
+	// wg.Wait()
 }

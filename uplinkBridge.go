@@ -36,7 +36,6 @@ func NewUplinkBridge(brName string, datapathManager *DatapathManager) *UplinkBri
 func (u *UplinkBridge) SwitchConnected(sw *ofctrl.OFSwitch) {
 	log.Infof("Switch %s connected", u.name)
 
-	log.Infof("cls switch connected : %v", u.datapathManager.OfSwitchMap)
 	vdsname := strings.Split(u.name, "-")[0]
 	u.datapathManager.OfSwitchMap[vdsname]["uplink"] = sw
 	u.ofSwitch = sw
@@ -48,12 +47,11 @@ func (u *UplinkBridge) SwitchConnected(sw *ofctrl.OFSwitch) {
 
 func (u *UplinkBridge) SwitchDisconnected(sw *ofctrl.OFSwitch) {
 	log.Infof("Switch %s disconnected", u.name)
-
-	u.ofSwitch = nil
-
 	u.uplinkSwitchStatueMutex.Lock()
 	u.isUplinkSwitchConnected = false
 	u.uplinkSwitchStatueMutex.Unlock()
+
+	u.ofSwitch = nil
 }
 
 func (u *UplinkBridge) IsSwitchConnected() bool {
@@ -84,6 +82,7 @@ func (u *UplinkBridge) MultipartReply(sw *ofctrl.OFSwitch, rep *openflow13.Multi
 }
 
 func (u *UplinkBridge) BridgeInit() error {
+	log.Infof("init uplink bridge")
 	sw := u.ofSwitch
 	u.normalForwardingTable = sw.DefaultTable()
 
