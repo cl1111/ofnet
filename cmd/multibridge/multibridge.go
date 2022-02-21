@@ -8,8 +8,10 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 
+	"github.com/contiv/libOpenflow/openflow13"
 	"github.com/contiv/libovsdb"
 	"github.com/contiv/ofnet"
+	"github.com/contiv/ofnet/ofctrl"
 	"github.com/contiv/ofnet/ovsdbDriver"
 )
 
@@ -148,6 +150,27 @@ var (
 	}
 )
 
+var (
+	srcMac, _ = net.ParseMAC("00:aa:aa:aa:aa:aa")
+	dstMac, _ = net.ParseMAC("00:aa:aa:aa:aa:ab")
+	srcIP     = net.ParseIP("10.0.1.11")
+	dstIP     = net.ParseIP("10.0.1.12")
+
+	packet = ofctrl.Packet{
+		SrcMac:     srcMac,
+		DstMac:     dstMac,
+		SrcIP:      srcIP,
+		DstIP:      dstIP,
+		IPProtocol: uint8(6),
+		IPLength:   uint16(5),
+		IPFlags:    uint16(0),
+		TTL:        uint8(60),
+		SrcPort:    uint16(8080),
+		DstPort:    uint16(80),
+		TCPFlags:   uint8(2),
+	}
+)
+
 func main() {
 	var err error
 	ofPortIpAddressUpdateMonitorChan := make(chan map[string][]net.IP, 1024)
@@ -155,80 +178,10 @@ func main() {
 
 	datapathManager := ofnet.NewDatapathManager(&datapathConfig, ofPortIpAddressUpdateMonitorChan)
 
-	// var vdsCount uint16 = 0
-	// for vdsID, ovsbrname := range datapathConfig.ManagedVDSMap {
-	// 	err = datapathManager.OvsdbDriverMap[vdsID]["local"].CreateOvsPort(fmt.Sprintf("%s_localToPolicy", vdsID), "", []ovsdbDriver.Iface{bridgeChainConfigMap[vdsID]["localToPolicy"]}, 0)
-	// 	if err != nil {
-	// 		log.Fatalf("Failed to create %s-localToPolicy", vdsID)
-	// 	}
-
-	// 	err = datapathManager.OvsdbDriverMap[vdsID]["policy"].CreateOvsPort(fmt.Sprintf("%s_policyToLocal", vdsID), "", []ovsdbDriver.Iface{bridgeChainConfigMap[vdsID]["policyToLocal"]}, 0)
-	// 	if err != nil {
-	// 		log.Fatalf("Failed to create %s-policyToLocal", vdsID)
-	// 	}
-	// 	err = datapathManager.OvsdbDriverMap[vdsID]["policy"].CreateOvsPort(fmt.Sprintf("%s_policyToCls", vdsID), "", []ovsdbDriver.Iface{bridgeChainConfigMap[vdsID]["policyToCls"]}, 0)
-	// 	if err != nil {
-	// 		log.Fatalf("Failed to create %s-policyToCls", vdsID)
-	// 	}
-
-	// 	err = datapathManager.OvsdbDriverMap[vdsID]["cls"].CreateOvsPort(fmt.Sprintf("%s_clsToPolicy", vdsID), "", []ovsdbDriver.Iface{bridgeChainConfigMap[vdsID]["clsToPolicy"]}, 0)
-	// 	if err != nil {
-	// 		log.Fatalf("Failed to create %s-clsToPolicy", vdsID)
-	// 	}
-	// 	err = datapathManager.OvsdbDriverMap[vdsID]["cls"].CreateOvsPort(fmt.Sprintf("%s_clsToUplink", vdsID), "", []ovsdbDriver.Iface{bridgeChainConfigMap[vdsID]["clsToUplink"]}, 0)
-	// 	if err != nil {
-	// 		log.Fatalf("Failed to create %s-clsToUplink", vdsID)
-	// 	}
-
-	// 	err = datapathManager.OvsdbDriverMap[vdsID]["uplink"].CreateOvsPort(fmt.Sprintf("%s_uplinkToCls", vdsID), "", []ovsdbDriver.Iface{bridgeChainConfigMap[vdsID]["uplinkToCls"]}, 0)
-	// 	if err != nil {
-	// 		log.Fatalf("Failed to create %s-uplinkToCls", vdsID)
-	// 	}
-
-	// 	err = datapathManager.OvsdbDriverMap[vdsID]["local"].AddController("127.0.0.1", ofnet.OVS_CTRL_PORT_START+vdsCount*ofnet.OVS_CTRL_PORT_PER_VDS_OFFSET+1)
-	// 	if err != nil {
-	// 		log.Fatalf("Failed to connect bridge %s to controller", ovsbrname)
-	// 	}
-	// 	err = datapathManager.OvsdbDriverMap[vdsID]["policy"].AddController("127.0.0.1", ofnet.OVS_CTRL_PORT_START+vdsCount*ofnet.OVS_CTRL_PORT_PER_VDS_OFFSET+2)
-	// 	if err != nil {
-	// 		log.Fatalf("Failed to connect bridge %s-policy to controller", ovsbrname)
-	// 	}
-	// 	err = datapathManager.OvsdbDriverMap[vdsID]["cls"].AddController("127.0.0.1", ofnet.OVS_CTRL_PORT_START+vdsCount*ofnet.OVS_CTRL_PORT_PER_VDS_OFFSET+3)
-	// 	if err != nil {
-	// 		log.Fatalf("Failed to connect bridge %s-cls to controller", ovsbrname)
-	// 	}
-	// 	err = datapathManager.OvsdbDriverMap[vdsID]["uplink"].AddController("127.0.0.1", ofnet.OVS_CTRL_PORT_START+vdsCount*ofnet.OVS_CTRL_PORT_PER_VDS_OFFSET+4)
-	// 	if err != nil {
-	// 		log.Fatalf("Failed to connect bridge %s-uplink to controller", ovsbrname)
-	// 	}
-
-	// 	vdsCount++
-	// }
-
-	// clear controller config
-	// cleanController := func(datapathManager *ofnet.DatapathManager) {
-	// log.Infof("######## remove controller in main ")
-	// 	for vdsID := range datapathManager.DatapathConfig.ManagedVDSMap {
-	// 		if err := datapathManager.OvsdbDriverMap[vdsID][ofnet.LOCAL_BRIDGE_KEYWORD].RemoveController(); err != nil {
-	// 			log.Fatalf("Failed to remove local bridge controller to ovsdb, error: %v", err)
-	// 		}
-	// 		if err := datapathManager.OvsdbDriverMap[vdsID][ofnet.POLICY_BRIDGE_KEYWORD].RemoveController(); err != nil {
-	// 			log.Fatalf("Failed to remove policy bridge controller to ovsdb, error: %v", err)
-	// 		}
-	// 		if err := datapathManager.OvsdbDriverMap[vdsID][ofnet.CLS_BRIDGE_KEYWORD].RemoveController(); err != nil {
-	// 			log.Fatalf("Failed to remove cls bridge controller to ovsdb, error: %v", err)
-	// 		}
-	// 		if err := datapathManager.OvsdbDriverMap[vdsID][ofnet.UPLINK_BRIDGE_KEYWORD].RemoveController(); err != nil {
-	// 			log.Fatalf("Failed to remove uplink bridge controller to ovsdb, error: %v", err)
-	// 		}
-	// 	}
-	// }
-	// cleanController(datapathManager)
-
 	// make sure that all of datapath ofswitch is connected before initialize datapath
 	datapathManager.InitializeDatapath(stopChan)
 
-	ovsClient, err := libovsdb.ConnectUnix("/var/run/openvswitch/db.sock")
+	ovsClient, err := libovsdb.ConnectUnix("/usr/local/var/run/openvswitch/db.sock")
 	if err != nil {
 		log.Fatalf("error when init ovsdbEventHandler ovsClient: %v", err)
 	}
@@ -256,9 +209,33 @@ func main() {
 	datapathManager.AddEveroutePolicyRule(rule1, ofnet.POLICY_DIRECTION_IN, ofnet.POLICY_TIER2)
 	datapathManager.AddEveroutePolicyRule(rule2, ofnet.POLICY_DIRECTION_OUT, ofnet.POLICY_TIER2)
 
+	sendActiveProbePacket(datapathManager.OfSwitchMap["ovsbr0"][ofnet.LOCAL_BRIDGE_KEYWORD], 1, &packet, 100, 1)
 	<-stopChan
 
 	// var wg sync.WaitGroup
 	// wg.Add(1)
 	// wg.Wait()
+}
+
+func sendActiveProbePacket(sw *ofctrl.OFSwitch, tag uint8, packet *ofctrl.Packet, inPort, outPort uint32) error {
+	packetOut := ofctrl.ConstructPacketOut(packet)
+	packetOut.InPort = inPort
+	packetOut.OutPort = outPort
+
+	field, err := openflow13.FindFieldHeaderByName("nxm_of_ip_tos", true)
+	if err != nil {
+		return err
+	}
+	loadOfAction := openflow13.NewNXActionRegLoad(openflow13.NewNXRange(2, 7).ToOfsBits(), field, uint64(tag))
+	packetOut.Actions = append(packetOut.Actions, loadOfAction)
+
+	return ofctrl.SendPacket(sw, packetOut)
+}
+
+func recvActiveProbePacket() error {
+
+	return nil
+}
+
+type OfBridge struct {
 }

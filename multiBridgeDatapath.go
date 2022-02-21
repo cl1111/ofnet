@@ -314,19 +314,19 @@ func (datapathManager *DatapathManager) InitializeDatapath(stopChan chan struct{
 			// if _, ok := <-datapathManager.ovsVswitchdStartChan; !ok {
 			// 	return
 			// }
-            select {
-                case <-datapathManager.ovsVswitchdStopChan:
-                    log.Infof("vswitchd crash event")
-                    continue
-                case <-datapathManager.ovsVswitchdStartChan:
-                    log.Infof("####### vswitchd restarted")
-                    // first vswitchd crash trigger datapath in disconnected status, then, we try to wait datapath reconnected and
-                    // replay flow. TODO wait for datapath into disconnected status.
-                    // reconnect complete
-                    datapathManager.replayFlows()
+			select {
+			case <-datapathManager.ovsVswitchdStopChan:
+				log.Infof("vswitchd crash event")
+				continue
+			case <-datapathManager.ovsVswitchdStartChan:
+				log.Infof("####### vswitchd restarted")
+				// first vswitchd crash trigger datapath in disconnected status, then, we try to wait datapath reconnected and
+				// replay flow. TODO wait for datapath into disconnected status.
+				// reconnect complete
+				datapathManager.replayFlows()
 
-                    // flow restore wait config restore
-            }
+				// flow restore wait config restore
+			}
 
 		}
 	}()
@@ -382,11 +382,11 @@ func (datapathManager *DatapathManager) replayFlows() {
 		// 1 second retry interval is too long
 		datapathManager.WaitForBridgeConnected()
 	}
-    log.Infof("$$$$$$$ vds config map %v", datapathManager.DatapathConfig.ManagedVDSMap)
+	log.Infof("$$$$$$$ vds config map %v", datapathManager.DatapathConfig.ManagedVDSMap)
 	// replay basic connectivity flow
 	for vdsID := range datapathManager.DatapathConfig.ManagedVDSMap {
-        log.Debugf("$$$$$$$ re-initialize vds %v", vdsID)
-        log.Infof("$$$$$$$ re-initialize vds %v", vdsID)
+		log.Debugf("$$$$$$$ re-initialize vds %v", vdsID)
+		log.Infof("$$$$$$$ re-initialize vds %v", vdsID)
 		datapathManager.BridgeChainMap[vdsID][LOCAL_BRIDGE_KEYWORD].BridgeInit()
 		datapathManager.BridgeChainMap[vdsID][POLICY_BRIDGE_KEYWORD].BridgeInit()
 		datapathManager.BridgeChainMap[vdsID][CLS_BRIDGE_KEYWORD].BridgeInit()

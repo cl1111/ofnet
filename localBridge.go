@@ -124,6 +124,7 @@ func (l *LocalBridge) PacketRcvd(sw *ofctrl.OFSwitch, pkt *ofctrl.PacketIn) {
 			}
 		}
 	case protocol.IPv4_MSG: // other type of packet that must processing by controller
+		log.Infof("###### received packetIn active packet is: %v", pkt)
 		log.Errorf("controller received non arp packet error.")
 		return
 	}
@@ -298,7 +299,11 @@ func (l *LocalBridge) BridgeInit() error {
 	localToLocalBUMDefaultFlow, _ := l.localEndpointL2ForwardingTable.NewFlow(ofctrl.FlowMatch{
 		Priority: DEFAULT_FLOW_PRIORITY,
 	})
-	outputPort, _ := l.ofSwitch.OutputPort(openflow13.P_ALL)
+	P_NONE := 0xffff
+	if err := localToLocalBUMDefaultFlow.LoadField("nxm_of_in_port", uint64(P_NONE), openflow13.NewNXRange(0, 15)); err != nil {
+		return err
+	}
+	outputPort, _ := l.ofSwitch.OutputPort(openflow13.P_NORMAL)
 	localToLocalBUMDefaultFlow.Next(outputPort)
 
 	// l2 learning table

@@ -31,7 +31,8 @@ func NewOvsDriver(bridgeName string) *OvsDriver {
 	ovsDriver := new(OvsDriver)
 
 	// connect to OVS
-	ovs, err := libovsdb.ConnectUnix("/var/run/openvswitch/db.sock")
+	// ovs, err := libovsdb.ConnectUnix("/var/run/openvswitch/db.sock")
+	ovs, err := libovsdb.ConnectUnix("/usr/local/var/run/openvswitch/db.sock")
 	if err != nil {
 		log.Fatal("Failed to connect to ovsdb. Err: ", err)
 	}
@@ -623,22 +624,6 @@ func (self *OvsDriver) GetBondInfo(portName string) (string, string, []string) {
 	}
 
 	return curBondMode, curActiveSlaveMacAddrStr, nonActiveSlaveMacAddrStr
-}
-
-func listUUID(uuidList interface{}) []libovsdb.UUID {
-	var idList []libovsdb.UUID
-
-	switch uuidList.(type) {
-	case libovsdb.UUID:
-		return []libovsdb.UUID{uuidList.(libovsdb.UUID)}
-	case libovsdb.OvsSet:
-		uuidSet := uuidList.(libovsdb.OvsSet).GoSet
-		for item := range uuidSet {
-			idList = append(idList, listUUID(uuidSet[item])...)
-		}
-	}
-
-	return idList
 }
 
 // Create an internal port in OVS

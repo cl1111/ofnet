@@ -1,0 +1,137 @@
+/***
+Copyright 2014 Cisco Systems Inc. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+package ofctrl
+
+import (
+	"net"
+
+	"github.com/contiv/libOpenflow/openflow13"
+	"github.com/contiv/libOpenflow/protocol"
+	"github.com/contiv/libOpenflow/util"
+
+	log "github.com/Sirupsen/logrus"
+)
+
+type Packet struct {
+	SrcMac     net.HardwareAddr
+	DstMac     net.HardwareAddr
+	SrcIP      net.IP
+	DstIP      net.IP
+	IPProtocol uint8
+	IPLength   uint16
+	IPFlags    uint16
+	TTL        uint8
+	SrcPort    uint16
+	DstPort    uint16
+	TCPFlags   uint8
+	ICMPType   uint8
+	ICMPCode   uint8
+
+	ICMPEchoID  uint16
+	ICMPEchoSeq uint16
+}
+
+type PacketHeader struct {
+	IPHeader   *protocol.IPv4
+	TCPHeader  *protocol.TCP
+	UDPHeader  *protocol.UDP
+	ICMPHeader *protocol.ICMP
+	ARPHeader  *protocol.ARP
+}
+
+type PacketOut struct {
+	InPort  uint32
+	OutPort uint32
+	SrcMac  net.HardwareAddr
+	DstMac  net.HardwareAddr
+	Header  *PacketHeader
+
+	Actions []openflow13.Action
+}
+
+func ConstructPacketOut(packet *Packet) *PacketOut {
+	// generate packet Header from Packet defnition
+	packetOut := new(PacketOut)
+	packetOut.SrcMac = packet.SrcMac
+	packetOut.DstMac = packet.DstMac
+	packetOut.Header.IPHeader = new(protocol.IPv4)
+	packetOut.Header.IPHeader.Flags = packet.IPFlags
+	packetOut.Header.IPHeader.NWSrc = packet.SrcIP
+	packetOut.Header.IPHeader.NWDst = packet.DstIP
+
+	switch packet.IPProtocol {
+	case protocol.Type_ICMP:
+		packetOut.Header.ICMPHeader = new(protocol.ICMP)
+		packetOut.Header.ICMPHeader.Type = packet.ICMPType
+		packetOut.Header.ICMPHeader.Code = packet.ICMPCode
+	case protocol.Type_TCP:
+		packetOut.Header.TCPHeader = new(protocol.TCP)
+		packetOut.Header.TCPHeader.Code = packet.TCPFlags
+		packetOut.Header.TCPHeader.PortSrc = packet.SrcPort
+		packetOut.Header.TCPHeader.PortDst = packet.DstPort
+	case protocol.Type_UDP:
+		packetOut.Header.UDPHeader = new(protocol.UDP)
+		packetOut.Header.UDPHeader.PortSrc = packet.SrcPort
+		packetOut.Header.UDPHeader.PortDst = packet.DstPort
+	default:
+		log.Infof("unsupport protocol")
+	}
+
+	return packetOut
+}
+
+func SendPacket(sw *OFSwitch, packetOut *PacketOut) error {
+	// generate openflow packetOut from ofctrl packet out
+	ofPacketOut := openflow13.NewPacketOut()
+	ofPacketOut.InPort = packetOut.InPort
+
+	ofPacketOut.Data = GeneratePacketOutData(packetOut)
+	if packetOut.OutPort > 0 {
+		ofPacketOut.AddAction(openflow13.NewActionOutput(packetOut.OutPort))
+	} else {
+		// default send packet to first table. openflow13 spec defined
+		ofPacketOut.AddAction(openflow13.NewActionOutput(openflow13.P_TABLE))
+	}
+
+	sw.Send(ofPacketOut)
+
+	return nil
+}
+
+func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
+	var data util.Message
+	ethPacket := &protocol.Ethernet{
+		HWDst: p.DstMac,
+		HWSrc: p.SrcMac,
+	}
+
+	switch {
+	case p.Header.TCPHeader != nil:
+		p.Header.IPHeader.Protocol = protocol.Type_TCP
+		p.Header.IPHeader.Data = p.Header.TCPHeader
+	case p.Header.UDPHeader != nil:
+		p.Header.IPHeader.Protocol = protocol.Type_UDP
+		p.Header.IPHeader.Data = p.Header.UDPHeader
+	case p.Header.ICMPHeader != nil:
+		p.Header.IPHeader.Protocol = protocol.Type_ICMP
+		p.Header.IPHeader.Data = p.Header.ICMPHeader
+	}
+
+	data = p.Header.IPHeader
+	ethPacket.Ethertype = protocol.IPv4_MSG
+	ethPacket.Data = data
+
+	return ethPacket
+}

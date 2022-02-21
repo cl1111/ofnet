@@ -72,6 +72,8 @@ type Controller struct {
 	stopChan     chan bool
 	DisconnChan  chan bool
 	controllerID uint16
+	// a list packetIn handler for specific packetIn reason defined as uint8 reason num
+	packetInHandler map[uint8]map[string]PacketInHandler
 }
 
 // Create a new controller

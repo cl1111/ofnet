@@ -376,8 +376,8 @@ func (o *ovsdbEventHandler) buildPortInfo(rowupdate libovsdb.RowUpdate) *PortInf
 }
 
 func (o *ovsdbEventHandler) processInterfaceUpdate(rowupdate libovsdb.RowUpdate) {
-	// fmt.Println("interface update\n: rowNew", rowupdate.New)
-	// fmt.Println("****** rowOld", rowupdate.Old)
+	fmt.Println("interface update\n: rowNew", rowupdate.New)
+	fmt.Println("****** rowOld", rowupdate.Old)
 
 	addedEndpoints := o.filterEndpointAdded(rowupdate)
 	if addedEndpoints != nil {
@@ -387,8 +387,8 @@ func (o *ovsdbEventHandler) processInterfaceUpdate(rowupdate libovsdb.RowUpdate)
 
 // NOTE, if callback excute failed, but ovsdbCache already updated, we can't properly delete endpoint
 func (o *ovsdbEventHandler) processInterfaceDelete(rowupdate libovsdb.RowUpdate) {
-	// fmt.Println("interface update\n: rowNew", rowupdate.New)
-	// fmt.Println("****** rowOld", rowupdate.Old)
+	fmt.Println("interface update\n: rowNew", rowupdate.New)
+	fmt.Println("****** rowOld", rowupdate.Old)
 
 	deletedEndpoints := o.filterEndpoingDeleted(rowupdate)
 	if deletedEndpoints != nil {
@@ -398,8 +398,8 @@ func (o *ovsdbEventHandler) processInterfaceDelete(rowupdate libovsdb.RowUpdate)
 
 // Asynchronize implement
 func (o *ovsdbEventHandler) processPortUpdate(rowupdate libovsdb.RowUpdate) {
-	// fmt.Println("port update\n: rowNew", rowupdate.New)
-	// fmt.Println("****** rowOld", rowupdate.Old)
+	fmt.Println("port update\n: rowNew", rowupdate.New)
+	fmt.Println("****** rowOld", rowupdate.Old)
 
 	isUplinkPort := o.filterUplinkPort(rowupdate)
 	if !isUplinkPort {
@@ -538,8 +538,8 @@ func (o *ovsdbEventHandler) processBondActiveSlaveSwitch(curActiveSlaveInterface
 }
 
 func (o *ovsdbEventHandler) processPortDelete(rowupdate libovsdb.RowUpdate) {
-	// fmt.Println("Port delete\n: ******* rowNew", rowupdate.New)
-	// fmt.Println("****** rowOld", rowupdate.Old)
+	fmt.Println("Port delete\n: ******* rowNew", rowupdate.New)
+	fmt.Println("****** rowOld", rowupdate.Old)
 
 	deletedPortName := o.filterUplinkDeleted(rowupdate)
 	if deletedPortName != nil {
