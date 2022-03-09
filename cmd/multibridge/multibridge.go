@@ -4,7 +4,7 @@ import (
 	// "fmt"
 	"net"
 	// "sync"
-	// "time"
+	"time"
 
 	log "github.com/Sirupsen/logrus"
 
@@ -156,7 +156,7 @@ var (
 	srcIP     = net.ParseIP("10.0.1.11")
 	dstIP     = net.ParseIP("10.0.1.12")
 
-	packet = ofctrl.Packet{
+	packet = &ofctrl.Packet{
 		SrcMac:     srcMac,
 		DstMac:     dstMac,
 		SrcIP:      srcIP,
@@ -181,7 +181,7 @@ func main() {
 	// make sure that all of datapath ofswitch is connected before initialize datapath
 	datapathManager.InitializeDatapath(stopChan)
 
-	ovsClient, err := libovsdb.ConnectUnix("/usr/local/var/run/openvswitch/db.sock")
+	ovsClient, err := libovsdb.ConnectUnix("/var/run/openvswitch/db.sock")
 	if err != nil {
 		log.Fatalf("error when init ovsdbEventHandler ovsClient: %v", err)
 	}
@@ -209,7 +209,20 @@ func main() {
 	datapathManager.AddEveroutePolicyRule(rule1, ofnet.POLICY_DIRECTION_IN, ofnet.POLICY_TIER2)
 	datapathManager.AddEveroutePolicyRule(rule2, ofnet.POLICY_DIRECTION_OUT, ofnet.POLICY_TIER2)
 
-	sendActiveProbePacket(datapathManager.OfSwitchMap["ovsbr0"][ofnet.LOCAL_BRIDGE_KEYWORD], 1, &packet, 100, 1)
+	ticker := time.NewTicker(1 * time.Second)
+	var outport *uint32 = nil
+	go func() {
+		for {
+			select {
+			case <-stopChan:
+				return
+			case t := <-ticker.C:
+				log.Infof("send active probe packet: %v at %v", packet, t)
+				sendActiveProbePacket(datapathManager.OfSwitchMap["ovsbr0"][ofnet.LOCAL_BRIDGE_KEYWORD], 16, packet, 10, outport)
+			}
+		}
+	}()
+
 	<-stopChan
 
 	// var wg sync.WaitGroup
@@ -217,7 +230,7 @@ func main() {
 	// wg.Wait()
 }
 
-func sendActiveProbePacket(sw *ofctrl.OFSwitch, tag uint8, packet *ofctrl.Packet, inPort, outPort uint32) error {
+func sendActiveProbePacket(sw *ofctrl.OFSwitch, tag uint8, packet *ofctrl.Packet, inPort uint32, outPort *uint32) error {
 	packetOut := ofctrl.ConstructPacketOut(packet)
 	packetOut.InPort = inPort
 	packetOut.OutPort = outPort

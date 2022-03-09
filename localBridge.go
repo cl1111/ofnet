@@ -124,6 +124,14 @@ func (l *LocalBridge) PacketRcvd(sw *ofctrl.OFSwitch, pkt *ofctrl.PacketIn) {
 			}
 		}
 	case protocol.IPv4_MSG: // other type of packet that must processing by controller
+		ipPkt := pkt.Data.Data.(*protocol.IPv4)
+		log.Infof("##### received ip pakcet tos %v", ipPkt.DSCP)
+		switch ipPkt.Protocol {
+		case protocol.Type_TCP:
+			// tcpPkt := ipPkt.Data.(*protocol.TCP)
+			// log.Infof("##### received tcp pakcet %v", tcpPkt)
+		}
+
 		log.Infof("###### received packetIn active packet is: %v", pkt)
 		log.Errorf("controller received non arp packet error.")
 		return

@@ -31,8 +31,7 @@ func NewOvsDriver(bridgeName string) *OvsDriver {
 	ovsDriver := new(OvsDriver)
 
 	// connect to OVS
-	// ovs, err := libovsdb.ConnectUnix("/var/run/openvswitch/db.sock")
-	ovs, err := libovsdb.ConnectUnix("/usr/local/var/run/openvswitch/db.sock")
+	ovs, err := libovsdb.ConnectUnix("/var/run/openvswitch/db.sock")
 	if err != nil {
 		log.Fatal("Failed to connect to ovsdb. Err: ", err)
 	}

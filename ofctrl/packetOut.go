@@ -53,7 +53,7 @@ type PacketHeader struct {
 
 type PacketOut struct {
 	InPort  uint32
-	OutPort uint32
+	OutPort *uint32
 	SrcMac  net.HardwareAddr
 	DstMac  net.HardwareAddr
 	Header  *PacketHeader
@@ -66,7 +66,9 @@ func ConstructPacketOut(packet *Packet) *PacketOut {
 	packetOut := new(PacketOut)
 	packetOut.SrcMac = packet.SrcMac
 	packetOut.DstMac = packet.DstMac
+	packetOut.Header = new(PacketHeader)
 	packetOut.Header.IPHeader = new(protocol.IPv4)
+	packetOut.Header.IPHeader.Version = 4
 	packetOut.Header.IPHeader.Flags = packet.IPFlags
 	packetOut.Header.IPHeader.NWSrc = packet.SrcIP
 	packetOut.Header.IPHeader.NWDst = packet.DstIP
@@ -98,11 +100,18 @@ func SendPacket(sw *OFSwitch, packetOut *PacketOut) error {
 	ofPacketOut.InPort = packetOut.InPort
 
 	ofPacketOut.Data = GeneratePacketOutData(packetOut)
-	if packetOut.OutPort > 0 {
-		ofPacketOut.AddAction(openflow13.NewActionOutput(packetOut.OutPort))
+	for _, action := range packetOut.Actions {
+		ofPacketOut.AddAction(action)
+	}
+	if packetOut.OutPort != nil {
+		log.Infof("send packet to port %v", *packetOut.OutPort)
+		ofPacketOut.AddAction(openflow13.NewActionOutput(*packetOut.OutPort))
 	} else {
 		// default send packet to first table. openflow13 spec defined
 		ofPacketOut.AddAction(openflow13.NewActionOutput(openflow13.P_TABLE))
+	}
+	for _, action := range ofPacketOut.Actions {
+		log.Infof("##### send packetout action %v", action)
 	}
 
 	sw.Send(ofPacketOut)
@@ -120,6 +129,7 @@ func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
 	switch {
 	case p.Header.TCPHeader != nil:
 		p.Header.IPHeader.Protocol = protocol.Type_TCP
+		// p.Header.IPHeader.DSCP = 4
 		p.Header.IPHeader.Data = p.Header.TCPHeader
 	case p.Header.UDPHeader != nil:
 		p.Header.IPHeader.Protocol = protocol.Type_UDP
@@ -133,5 +143,6 @@ func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
 	ethPacket.Ethertype = protocol.IPv4_MSG
 	ethPacket.Data = data
 
+	// log.Infof("##### send eth packet through %v, tos %v", ethPacket, p.Header.IPHeader.DSCP)
 	return ethPacket
 }

@@ -10,6 +10,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/contiv/libOpenflow/openflow13"
+	"github.com/contiv/libOpenflow/protocol"
 
 	"github.com/contiv/ofnet/ofctrl"
 	// "github.com/contiv/ofnet/ofctrl/cookie"
@@ -130,6 +131,20 @@ func (p *PolicyBridge) WaitForSwitchConnection() {
 }
 
 func (p *PolicyBridge) PacketRcvd(sw *ofctrl.OFSwitch, pkt *ofctrl.PacketIn) {
+	switch pkt.Data.Ethertype {
+	case protocol.IPv4_MSG: // other type of packet that must processing by controller
+		ipPkt := pkt.Data.Data.(*protocol.IPv4)
+		log.Infof("##### received ip pakcet tos %v", ipPkt.DSCP)
+		switch ipPkt.Protocol {
+		case protocol.Type_TCP:
+			// tcpPkt := ipPkt.Data.(*protocol.TCP)
+			// log.Infof("##### received tcp pakcet %v", tcpPkt)
+		}
+
+		log.Infof("###### received packetIn active packet is: %v", pkt)
+		log.Errorf("controller received non arp packet error.")
+		return
+	}
 }
 
 func (p *PolicyBridge) MultipartReply(sw *ofctrl.OFSwitch, rep *openflow13.MultipartReply) {
