@@ -9,6 +9,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	"github.com/contiv/libOpenflow/openflow13"
+	"github.com/contiv/libOpenflow/protocol"
 	"github.com/contiv/libovsdb"
 	"github.com/contiv/ofnet"
 	"github.com/contiv/ofnet/ofctrl"
@@ -208,6 +209,12 @@ func main() {
 	log.Infof("###### add rule to datatpath")
 	datapathManager.AddEveroutePolicyRule(rule1, ofnet.POLICY_DIRECTION_IN, ofnet.POLICY_TIER2)
 	datapathManager.AddEveroutePolicyRule(rule2, ofnet.POLICY_DIRECTION_OUT, ofnet.POLICY_TIER2)
+
+	var matchFields []*openflow13.MatchField
+	protoField := openflow13.NewEthTypeField(protocol.IPv4_MSG)
+	matchFields = append(matchFields, protoField)
+	var vlanInputDefaultPriority uint16 = ofnet.DEFAULT_FLOW_PRIORITY
+	datapathManager.OfSwitchMap["ovsbr0"]["local"].DeleteSpecTableFlows(uint8(ofnet.VLAN_INPUT_TABLE), &vlanInputDefaultPriority, matchFields)
 
 	ticker := time.NewTicker(1 * time.Second)
 	var outport *uint32 = nil
