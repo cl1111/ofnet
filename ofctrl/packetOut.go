@@ -15,6 +15,8 @@ limitations under the License.
 package ofctrl
 
 import (
+	"encoding/binary"
+	"math/rand"
 	"net"
 
 	"github.com/contiv/libOpenflow/openflow13"
@@ -145,4 +147,113 @@ func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
 
 	// log.Infof("##### send eth packet through %v, tos %v", ethPacket, p.Header.IPHeader.DSCP)
 	return ethPacket
+}
+
+func (p *PacketIn) GetMatches() *Matchers {
+	matches := make([]*MatchField, 0, len(p.Match.Fields))
+	for i := range p.Match.Fields {
+		matches = append(matches, NewMatchField(&p.Match.Fields[i]))
+	}
+	return &Matchers{matches: matches}
+}
+
+func GenerateTCPPacket(srcMAC, dstMAC net.HardwareAddr, srcIP, dstIP net.IP, dstPort, srcPort uint16, tcpFlags *uint8) *PacketOut {
+	tcpHeader := GenerateTCPHeader(dstPort, srcPort, tcpFlags)
+	var pktOut *PacketOut
+	ipHeader := &protocol.IPv4{
+		Version:        4,
+		IHL:            5,
+		Length:         20 + tcpHeader.Len(),
+		Id:             uint16(rand.Int()),
+		Flags:          0,
+		FragmentOffset: 0,
+		TTL:            64,
+		Protocol:       protocol.Type_TCP,
+		Checksum:       0,
+		NWSrc:          srcIP,
+		NWDst:          dstIP,
+	}
+
+	packetOutHeader := &PacketHeader{
+		IPHeader:  ipHeader,
+		TCPHeader: tcpHeader,
+	}
+	pktOut = &PacketOut{
+		SrcMac: srcMAC,
+		DstMac: dstMAC,
+		Header: packetOutHeader,
+	}
+
+	return pktOut
+}
+
+func GenerateSimpleIPPacket(srcMAC, dstMAC net.HardwareAddr, srcIP, dstIP net.IP) *PacketOut {
+	icmpHeader := GenerateICMPHeader(nil, nil)
+	ipHeader := &protocol.IPv4{
+		Version:        4,
+		IHL:            5,
+		Length:         20 + icmpHeader.Len(),
+		Id:             uint16(rand.Int()),
+		Flags:          0,
+		FragmentOffset: 0,
+		TTL:            64,
+		Protocol:       protocol.Type_ICMP,
+		Checksum:       0,
+		NWSrc:          srcIP,
+		NWDst:          dstIP,
+	}
+
+	packetOutHeader := &PacketHeader{
+		IPHeader:   ipHeader,
+		ICMPHeader: icmpHeader,
+	}
+	pktOut := &PacketOut{
+		SrcMac: srcMAC,
+		DstMac: dstMAC,
+		Header: packetOutHeader,
+	}
+	return pktOut
+}
+
+func GenerateTCPHeader(dstPort, srcPort uint16, flags *uint8) *protocol.TCP {
+	header := protocol.NewTCP()
+	if dstPort != 0 {
+		header.PortDst = dstPort
+	} else {
+		header.PortDst = uint16(rand.Uint32())
+	}
+	if srcPort != 0 {
+		header.PortSrc = srcPort
+	} else {
+		header.PortSrc = uint16(rand.Uint32())
+	}
+	header.AckNum = rand.Uint32()
+	header.AckNum = header.AckNum + 1
+	header.HdrLen = 20
+	if flags != nil {
+		header.Code = *flags
+	} else {
+		header.Code = uint8(1 << 1)
+	}
+	return header
+}
+
+func GenerateICMPHeader(icmpType, icmpCode *uint8) *protocol.ICMP {
+	header := protocol.NewICMP()
+	if icmpType != nil {
+		header.Type = *icmpType
+	} else {
+		header.Type = 8
+	}
+	if icmpCode != nil {
+		header.Code = *icmpCode
+	} else {
+		header.Code = 0
+	}
+	identifier := uint16(rand.Uint32())
+	seq := uint16(1)
+	data := make([]byte, 4)
+	binary.BigEndian.PutUint16(data, identifier)
+	binary.BigEndian.PutUint16(data[2:], seq)
+	return header
 }
