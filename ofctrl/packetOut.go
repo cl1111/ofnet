@@ -131,7 +131,7 @@ func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
 	switch {
 	case p.Header.TCPHeader != nil:
 		p.Header.IPHeader.Protocol = protocol.Type_TCP
-		p.Header.IPHeader.DSCP = 16
+		p.Header.IPHeader.DSCP = 4
 		p.Header.IPHeader.Data = p.Header.TCPHeader
 	case p.Header.UDPHeader != nil:
 		p.Header.IPHeader.Protocol = protocol.Type_UDP
