@@ -16,6 +16,8 @@ package ofctrl
 
 import (
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"math/rand"
 	"net"
 
@@ -24,6 +26,12 @@ import (
 	"github.com/contiv/libOpenflow/util"
 
 	log "github.com/Sirupsen/logrus"
+)
+
+type Range [2]uint32
+
+const (
+	NxmFieldReg = "NXM_NX_REG"
 )
 
 type Packet struct {
@@ -61,6 +69,41 @@ type PacketOut struct {
 	Header  *PacketHeader
 
 	Actions []openflow13.Action
+}
+
+// RegField specifies a bit range of a register. regID is the register number, and rng is the range of bits
+// taken by the field. The OF client could use a RegField to cache or match varied value.
+type RegField struct {
+	regID int
+	rng   *Range
+	name  string
+}
+
+// RegMark is a value saved in a RegField. A RegMark is used to indicate the traffic
+// has some expected characteristics.
+type RegMark struct {
+	field *RegField
+	value uint32
+}
+
+// XXRegField specifies a xxreg with a required bit range.
+type XXRegField RegField
+
+// CtMarkField specifies a bit range of a CT mark. rng is the range of bits taken by the field. The OF client could use a
+// CtMarkField to cache or match varied value.
+type CtMarkField struct {
+	rng *Range
+}
+
+// CtMark is used to indicate the connection characteristics.
+type CtMark struct {
+	field *CtMarkField
+	value uint32
+}
+
+type CtLabel struct {
+	rng  *Range
+	name string
 }
 
 func ConstructPacketOut(packet *Packet) *PacketOut {
@@ -155,6 +198,29 @@ func (p *PacketIn) GetMatches() *Matchers {
 		matches = append(matches, NewMatchField(&p.Match.Fields[i]))
 	}
 	return &Matchers{matches: matches}
+}
+
+func NewRegField(id int, start, end uint32, name string) *RegField {
+	return &RegField{regID: id, rng: &Range{start, end}, name: name}
+}
+
+func (f *RegField) GetNXFieldName() string {
+	return fmt.Sprintf("%s%d", NxmFieldReg, f.regID)
+}
+
+func GetMatchRegField(matchers *Matchers, field *RegField) *MatchField {
+	return matchers.GetMatchByName(field.GetNXFieldName())
+}
+
+func GetRegValue(regMatch *MatchField, rng *openflow13.NXRange) (uint32, error) {
+	regValue, ok := regMatch.GetValue().(*NXRegister)
+	if !ok {
+		return 0, errors.New("register value cannot be got")
+	}
+	if rng != nil {
+		return GetUint32ValueWithRange(regValue.Data, rng), nil
+	}
+	return regValue.Data, nil
 }
 
 func GenerateTCPPacket(srcMAC, dstMAC net.HardwareAddr, srcIP, dstIP net.IP, dstPort, srcPort uint16, tcpFlags *uint8) *PacketOut {

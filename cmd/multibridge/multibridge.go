@@ -246,7 +246,7 @@ func sendActiveProbePacket(sw *ofctrl.OFSwitch, tag uint8, packet *ofctrl.Packet
 	if err != nil {
 		return err
 	}
-	loadOfAction := openflow13.NewNXActionRegLoad(openflow13.NewNXRange(0, 7).ToOfsBits(), field, uint64(tag))
+	loadOfAction := openflow13.NewNXActionRegLoad(openflow13.NewNXRange(2, 7).ToOfsBits(), field, uint64(tag))
 	packetOut.Actions = append(packetOut.Actions, loadOfAction)
 
 	return ofctrl.SendPacket(sw, packetOut)
