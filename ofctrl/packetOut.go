@@ -118,7 +118,7 @@ func ConstructPacketOut(packet *Packet) *PacketOut {
 	packetOut.Header.IPHeader.NWSrc = packet.SrcIP
 	packetOut.Header.IPHeader.NWDst = packet.DstIP
 	packetOut.Header.IPHeader.TTL = packet.TTL
-	packetOut.Header.IPHeader.Length = packet.IPLength
+	//packetOut.Header.IPHeader.Length = packet.IPLength
 	packetOut.Header.IPHeader.IHL = 20
 
 	switch packet.IPProtocol {
@@ -179,6 +179,14 @@ func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
 		p.Header.IPHeader.Protocol = protocol.Type_TCP
 		p.Header.IPHeader.DSCP = 4
 		p.Header.IPHeader.Data = p.Header.TCPHeader
+		p.Header.TCPHeader.HdrLen = 5
+		// #nosec G404: random number generator not used for security purposes
+		p.Header.TCPHeader.SeqNum = rand.Uint32()
+		if p.Header.TCPHeader.AckNum == 0 {
+			// #nosec G404: random number generator not used for security purposes
+			p.Header.TCPHeader.AckNum = rand.Uint32()
+		}
+		p.Header.IPHeader.Length = 20 + p.Header.TCPHeader.Len()
 	case p.Header.UDPHeader != nil:
 		p.Header.IPHeader.Protocol = protocol.Type_UDP
 		p.Header.IPHeader.Data = p.Header.UDPHeader
