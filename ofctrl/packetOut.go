@@ -182,10 +182,10 @@ func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
 		p.Header.TCPHeader.HdrLen = 5
 		// #nosec G404: random number generator not used for security purposes
 		p.Header.TCPHeader.SeqNum = rand.Uint32()
-		if p.Header.TCPHeader.AckNum == 0 {
-			// #nosec G404: random number generator not used for security purposes
-			p.Header.TCPHeader.AckNum = rand.Uint32()
-		}
+		//if p.Header.TCPHeader.AckNum == 0 {
+		//	// #nosec G404: random number generator not used for security purposes
+		//	p.Header.TCPHeader.AckNum = rand.Uint32()
+		//}
 		p.Header.TCPHeader.Checksum = p.tcpHeaderChecksum()
 		p.Header.IPHeader.Length = 20 + p.Header.TCPHeader.Len()
 	case p.Header.UDPHeader != nil:
