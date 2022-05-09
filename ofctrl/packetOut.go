@@ -186,6 +186,7 @@ func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
 			// #nosec G404: random number generator not used for security purposes
 			p.Header.TCPHeader.AckNum = rand.Uint32()
 		}
+		p.Header.TCPHeader.Checksum = p.tcpHeaderChecksum()
 		p.Header.IPHeader.Length = 20 + p.Header.TCPHeader.Len()
 	case p.Header.UDPHeader != nil:
 		p.Header.IPHeader.Protocol = protocol.Type_UDP
@@ -201,6 +202,39 @@ func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
 
 	// log.Infof("##### send eth packet through %v, tos %v", ethPacket, p.Header.IPHeader.DSCP)
 	return ethPacket
+}
+
+func (p *PacketOut) tcpHeaderChecksum() uint16 {
+	tcpHeader := p.Header.TCPHeader
+	tcpHeader.Checksum = 0
+	data, _ := tcpHeader.MarshalBinary()
+	checksumData := append(p.generatePseudoHeader(uint16(len(data))), data...)
+	return checksum(checksumData)
+}
+
+func (p *PacketOut) generatePseudoHeader(length uint16) []byte {
+	var pseudoHeader []byte
+	pseudoHeader = make([]byte, 12)
+	copy(pseudoHeader[0:4], p.Header.IPHeader.NWSrc.To4())
+	copy(pseudoHeader[4:8], p.Header.IPHeader.NWDst.To4())
+	pseudoHeader[8] = 0x0
+	pseudoHeader[9] = p.Header.IPHeader.Protocol
+	binary.BigEndian.PutUint16(pseudoHeader[10:12], length)
+	return pseudoHeader
+}
+
+func checksum(data []byte) uint16 {
+	sum := uint32(0)
+	for ; len(data) >= 2; data = data[2:] {
+		sum += uint32(data[0])<<8 | uint32(data[1])
+	}
+	if len(data) > 0 {
+		sum += uint32(data[0]) << 8
+	}
+	for sum > 0xffff {
+		sum = (sum >> 16) + (sum & 0xffff)
+	}
+	return ^uint16(sum)
 }
 
 func (p *PacketIn) GetMatches() *Matchers {
