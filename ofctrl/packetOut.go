@@ -194,7 +194,7 @@ func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
 		p.Header.IPHeader.Protocol = protocol.Type_ICMP
 		p.Header.IPHeader.Data = p.Header.ICMPHeader
 	}
-	//p.Header.IPHeader.Checksum = p.ipHeaderChecksum()
+	p.Header.IPHeader.Checksum = p.ipHeaderChecksum()
 	data = p.Header.IPHeader
 	ethPacket.Ethertype = protocol.IPv4_MSG
 	ethPacket.Data = data
