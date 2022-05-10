@@ -118,8 +118,6 @@ func ConstructPacketOut(packet *Packet) *PacketOut {
 	packetOut.Header.IPHeader.NWSrc = packet.SrcIP
 	packetOut.Header.IPHeader.NWDst = packet.DstIP
 	packetOut.Header.IPHeader.TTL = packet.TTL
-	packetOut.Header.IPHeader.Checksum = 0x647a
-	//packetOut.Header.IPHeader.Length = packet.IPLength
 	packetOut.Header.IPHeader.IHL = 20
 
 	switch packet.IPProtocol {
@@ -189,6 +187,8 @@ func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
 		//}
 		p.Header.TCPHeader.Checksum = p.tcpHeaderChecksum()
 		p.Header.IPHeader.Length = 20 + p.Header.TCPHeader.Len()
+		p.Header.IPHeader.Version = 0x4
+		p.Header.IPHeader.Checksum = p.ipHeaderChecksum()
 	case p.Header.UDPHeader != nil:
 		p.Header.IPHeader.Protocol = protocol.Type_UDP
 		p.Header.IPHeader.Data = p.Header.UDPHeader
@@ -203,6 +203,14 @@ func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
 
 	// log.Infof("##### send eth packet through %v, tos %v", ethPacket, p.Header.IPHeader.DSCP)
 	return ethPacket
+}
+
+func (p *PacketOut) ipHeaderChecksum() uint16 {
+	ipHeader := p.Header.IPHeader
+	ipHeader.Checksum = 0
+	ipHeader.Data = nil
+	data, _ := ipHeader.MarshalBinary()
+	return checksum(data)
 }
 
 func (p *PacketOut) tcpHeaderChecksum() uint16 {
