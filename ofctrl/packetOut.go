@@ -187,8 +187,6 @@ func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
 		//}
 		p.Header.TCPHeader.Checksum = p.tcpHeaderChecksum()
 		p.Header.IPHeader.Length = 20 + p.Header.TCPHeader.Len()
-		p.Header.IPHeader.Version = 0x4
-		p.Header.IPHeader.Checksum = p.ipHeaderChecksum()
 	case p.Header.UDPHeader != nil:
 		p.Header.IPHeader.Protocol = protocol.Type_UDP
 		p.Header.IPHeader.Data = p.Header.UDPHeader
@@ -196,7 +194,7 @@ func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
 		p.Header.IPHeader.Protocol = protocol.Type_ICMP
 		p.Header.IPHeader.Data = p.Header.ICMPHeader
 	}
-
+	//p.Header.IPHeader.Checksum = p.ipHeaderChecksum()
 	data = p.Header.IPHeader
 	ethPacket.Ethertype = protocol.IPv4_MSG
 	ethPacket.Data = data
