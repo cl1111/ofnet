@@ -118,7 +118,7 @@ func ConstructPacketOut(packet *Packet) *PacketOut {
 	packetOut.Header.IPHeader.NWSrc = packet.SrcIP
 	packetOut.Header.IPHeader.NWDst = packet.DstIP
 	packetOut.Header.IPHeader.TTL = packet.TTL
-	packetOut.Header.IPHeader.IHL = 5
+	//packetOut.Header.IPHeader.IHL = 5
 
 	switch packet.IPProtocol {
 	case protocol.Type_ICMP:
