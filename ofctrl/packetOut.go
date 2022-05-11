@@ -176,8 +176,8 @@ func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
 	switch {
 	case p.Header.TCPHeader != nil:
 		p.Header.IPHeader.Protocol = protocol.Type_TCP
-		p.Header.IPHeader.DSCP = 2
-		p.Header.IPHeader.ECN = 2
+		p.Header.IPHeader.DSCP = 8
+		p.Header.IPHeader.ECN = 0
 		p.Header.IPHeader.Data = p.Header.TCPHeader
 		p.Header.TCPHeader.HdrLen = 5
 		// #nosec G404: random number generator not used for security purposes
