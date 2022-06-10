@@ -167,7 +167,8 @@ func SendPacket(sw *OFSwitch, packetOut *PacketOut) error {
 }
 
 func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
-	var data util.Message
+	var ethData util.Message
+	var ipData util.Message
 	ethPacket := &protocol.Ethernet{
 		HWDst: p.DstMac,
 		HWSrc: p.SrcMac,
@@ -185,23 +186,26 @@ func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
 		}
 		p.Header.TCPHeader.Checksum = p.tcpHeaderChecksum()
 		p.Header.IPHeader.Length = 20 + p.Header.TCPHeader.Len()
-		p.Header.IPHeader.Data = p.Header.TCPHeader
+		ipData = p.Header.TCPHeader
+		p.Header.IPHeader.Data = ipData
 	case p.Header.UDPHeader != nil:
 		p.Header.IPHeader.Protocol = protocol.Type_UDP
 		p.Header.UDPHeader.Length = p.Header.UDPHeader.Len()
 		p.Header.UDPHeader.Checksum = p.udpHeaderChecksum()
 		p.Header.IPHeader.Length = 20 + p.Header.UDPHeader.Len()
-		p.Header.IPHeader.Data = p.Header.UDPHeader
+		ipData = p.Header.UDPHeader
+		p.Header.IPHeader.Data = ipData
 	case p.Header.ICMPHeader != nil:
 		p.Header.IPHeader.Protocol = protocol.Type_ICMP
 		p.Header.ICMPHeader.Checksum = p.icmpHeaderChecksum()
 		p.Header.IPHeader.Length = 20 + p.Header.ICMPHeader.Len()
-		p.Header.IPHeader.Data = p.Header.ICMPHeader
+		ipData = p.Header.ICMPHeader
+		p.Header.IPHeader.Data = ipData
 	}
 	p.Header.IPHeader.Checksum = p.ipHeaderChecksum()
-	data = p.Header.IPHeader
+	ethData = p.Header.IPHeader
 	ethPacket.Ethertype = protocol.IPv4_MSG
-	ethPacket.Data = data
+	ethPacket.Data = ethData
 
 	return ethPacket
 }
