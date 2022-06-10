@@ -176,23 +176,26 @@ func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
 	switch {
 	case p.Header.TCPHeader != nil:
 		p.Header.IPHeader.Protocol = protocol.Type_TCP
-		//p.Header.IPHeader.DSCP = 0
-		//p.Header.IPHeader.ECN = 0
-		p.Header.IPHeader.Data = p.Header.TCPHeader
 		p.Header.TCPHeader.HdrLen = 5
 		// #nosec G404: random number generator not used for security purposes
 		p.Header.TCPHeader.SeqNum = rand.Uint32()
-		//if p.Header.TCPHeader.AckNum == 0 {
-		//	// #nosec G404: random number generator not used for security purposes
-		//	p.Header.TCPHeader.AckNum = rand.Uint32()
-		//}
+		if p.Header.TCPHeader.AckNum == 0 {
+			// #nosec G404: random number generator not used for security purposes
+			p.Header.TCPHeader.AckNum = rand.Uint32()
+		}
 		p.Header.TCPHeader.Checksum = p.tcpHeaderChecksum()
 		p.Header.IPHeader.Length = 20 + p.Header.TCPHeader.Len()
+		p.Header.IPHeader.Data = p.Header.TCPHeader
 	case p.Header.UDPHeader != nil:
 		p.Header.IPHeader.Protocol = protocol.Type_UDP
+		p.Header.UDPHeader.Length = p.Header.UDPHeader.Len()
+		p.Header.UDPHeader.Checksum = p.udpHeaderChecksum()
+		p.Header.IPHeader.Length = 20 + p.Header.UDPHeader.Len()
 		p.Header.IPHeader.Data = p.Header.UDPHeader
 	case p.Header.ICMPHeader != nil:
 		p.Header.IPHeader.Protocol = protocol.Type_ICMP
+		p.Header.ICMPHeader.Checksum = p.icmpHeaderChecksum()
+		p.Header.IPHeader.Length = 20 + p.Header.ICMPHeader.Len()
 		p.Header.IPHeader.Data = p.Header.ICMPHeader
 	}
 	p.Header.IPHeader.Checksum = p.ipHeaderChecksum()
@@ -201,7 +204,6 @@ func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
 	ethPacket.Ethertype = protocol.IPv4_MSG
 	ethPacket.Data = data
 
-	// log.Infof("##### send eth packet through %v, tos %v", ethPacket, p.Header.IPHeader.DSCP)
 	return ethPacket
 }
 
@@ -219,6 +221,31 @@ func (p *PacketOut) tcpHeaderChecksum() uint16 {
 	data, _ := tcpHeader.MarshalBinary()
 	checksumData := append(p.generatePseudoHeader(uint16(len(data))), data...)
 	return checksum(checksumData)
+}
+
+func (p *PacketOut) icmpHeaderChecksum() uint16 {
+	icmpHeader := p.Header.ICMPHeader
+	icmpHeader.Checksum = 0
+	data, _ := icmpHeader.MarshalBinary()
+	checksumData := data
+	return checksum(checksumData)
+}
+
+func (p *PacketOut) udpHeaderChecksum() uint16 {
+	udpHeader := p.Header.UDPHeader
+	udpHeader.Checksum = 0
+	data, _ := udpHeader.MarshalBinary()
+	checksumData := append(p.generatePseudoHeader(uint16(len(data))), data...)
+	checksum := checksum(checksumData)
+	// From RFC 768:
+	// If the computed checksum is zero, it is transmitted as all ones (the
+	// equivalent in one's complement arithmetic). An all zero transmitted
+	// checksum value means that the transmitter generated no checksum (for
+	// debugging or for higher level protocols that don't care).
+	if checksum == 0 {
+		checksum = 0xffff
+	}
+	return checksum
 }
 
 func (p *PacketOut) generatePseudoHeader(length uint16) []byte {
