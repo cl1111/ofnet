@@ -18,6 +18,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/contiv/libOpenflow/util"
 	"math/rand"
 	"net"
 
@@ -165,8 +166,8 @@ func SendPacket(sw *OFSwitch, packetOut *PacketOut) error {
 }
 
 func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
-	//var ethData util.Message
-	//var ipData util.Message
+	var ethData util.Message
+	var ipData util.Message
 	ethPacket := &protocol.Ethernet{
 		HWDst: p.DstMac,
 		HWSrc: p.SrcMac,
@@ -178,30 +179,30 @@ func GeneratePacketOutData(p *PacketOut) *protocol.Ethernet {
 		p.Header.TCPHeader.HdrLen = 5
 		// #nosec G404: random number generator not used for security purposes
 		p.Header.TCPHeader.SeqNum = rand.Uint32()
-		if p.Header.TCPHeader.AckNum == 0 {
-			// #nosec G404: random number generator not used for security purposes
-			p.Header.TCPHeader.AckNum = rand.Uint32()
-		}
+		//if p.Header.TCPHeader.AckNum == 0 {
+		//	// #nosec G404: random number generator not used for security purposes
+		//	p.Header.TCPHeader.AckNum = rand.Uint32()
+		//}
 		p.Header.TCPHeader.Checksum = p.tcpHeaderChecksum()
 		p.Header.IPHeader.Length = 20 + p.Header.TCPHeader.Len()
-		ipData := p.Header.TCPHeader
+		ipData = p.Header.TCPHeader
 		p.Header.IPHeader.Data = ipData
 	case p.Header.UDPHeader != nil:
 		p.Header.IPHeader.Protocol = protocol.Type_UDP
 		p.Header.UDPHeader.Length = p.Header.UDPHeader.Len()
 		p.Header.UDPHeader.Checksum = p.udpHeaderChecksum()
 		p.Header.IPHeader.Length = 20 + p.Header.UDPHeader.Len()
-		ipData := p.Header.UDPHeader
+		ipData = p.Header.UDPHeader
 		p.Header.IPHeader.Data = ipData
 	case p.Header.ICMPHeader != nil:
 		p.Header.IPHeader.Protocol = protocol.Type_ICMP
 		p.Header.ICMPHeader.Checksum = p.icmpHeaderChecksum()
 		p.Header.IPHeader.Length = 20 + p.Header.ICMPHeader.Len()
-		ipData := p.Header.ICMPHeader
+		ipData = p.Header.ICMPHeader
 		p.Header.IPHeader.Data = ipData
 	}
 	p.Header.IPHeader.Checksum = p.ipHeaderChecksum()
-	ethData := p.Header.IPHeader
+	ethData = p.Header.IPHeader
 	ethPacket.Ethertype = protocol.IPv4_MSG
 	ethPacket.Data = ethData
 
