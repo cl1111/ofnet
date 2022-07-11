@@ -39,6 +39,7 @@ type Packet struct {
 	DstIP      net.IP
 	IPProtocol uint8
 	IPLength   uint16
+	IPId       uint16
 	IPFlags    uint16
 	TTL        uint8
 	SrcPort    uint16
@@ -112,6 +113,7 @@ func ConstructPacketOut(packet *Packet) *PacketOut {
 	packetOut.Header = new(PacketHeader)
 	packetOut.Header.IPHeader = new(protocol.IPv4)
 	packetOut.Header.IPHeader.Version = 4
+	packetOut.Header.IPHeader.Id = packet.IPId
 	packetOut.Header.IPHeader.Flags = packet.IPFlags
 	packetOut.Header.IPHeader.NWSrc = packet.SrcIP
 	packetOut.Header.IPHeader.NWDst = packet.DstIP
